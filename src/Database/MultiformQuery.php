@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TimeFrontiers\Database;
 
+use TimeFrontiers\Helper\Pagination;
 use TimeFrontiers\SQLDatabase;
 
 /**
@@ -13,6 +14,12 @@ use TimeFrontiers\SQLDatabase;
  * instead of static entity classes.
  */
 class MultiformQuery {
+
+  // Pagination::offset() (computed getter) is aliased to avoid conflict with
+  // this class's own offset(int $offset):self fluent setter.
+  use Pagination {
+    Pagination::offset as paginationOffset;
+  }
 
   private SQLDatabase $_conn;
   private string $_database;
@@ -227,6 +234,69 @@ class MultiformQuery {
    */
   public function exists():bool {
     return $this->count() > 0;
+  }
+
+  /**
+   * Execute a paginated query.
+   *
+   * Counts matching rows, applies LIMIT/OFFSET from the Pagination trait,
+   * and returns hydrated results alongside pagination metadata.
+   *
+   * When $page or $per_page are null the values are read from the request
+   * ($_GET first, then $_POST) using the supplied parameter key names,
+   * mirroring the behaviour of Pagination::fromRequest().
+   *
+   * @param int|null $page        Page number (1-indexed). Null = read from request.
+   * @param int|null $per_page    Items per page. Null = read from request.
+   * @param string   $page_key    Request key for the page number (default 'page').
+   * @param string   $per_page_key Request key for per-page (default 'per_page').
+   *
+   * @return array{data: array<Multiform>, meta: array} Paginated result set.
+   *
+   * @example
+   * ```php
+   * // Explicit page/per-page
+   * $result = Multiform::from('mydb', 'users')
+   *   ->query()
+   *   ->where('status', 'active')
+   *   ->paginate(page: 2, per_page: 25);
+   *
+   * foreach ($result['data'] as $user) { ... }
+   * $meta = $result['meta'];  // current_page, total_pages, has_more, etc.
+   *
+   * // Read from $_GET automatically (?page=3&per_page=10)
+   * $result = Multiform::from('mydb', 'orders')->query()->paginate();
+   *
+   * // API response
+   * return ['data' => $result['data'], 'pagination' => $result['meta']];
+   * ```
+   */
+  public function paginate(
+    ?int $page = null,
+    ?int $per_page = null,
+    string $page_key = 'page',
+    string $per_page_key = 'per_page'
+  ):array {
+    // Resolve page and per_page from request when not supplied explicitly
+    $page     ??= (int)($_GET[$page_key]     ?? $_POST[$page_key]     ?? 1);
+    $per_page ??= (int)($_GET[$per_page_key] ?? $_POST[$per_page_key] ?? 20);
+
+    $this->setPage($page);
+    $this->setPerPage($per_page);
+
+    // Run COUNT before modifying limit/offset
+    $total = $this->count();
+    $this->setTotalCount($total);
+
+    // Restore select and apply pagination limit/offset
+    $this->_select  = ['*'];
+    $this->_limit   = $this->perPage();
+    $this->_offset  = $this->paginationOffset();
+
+    return [
+      'data' => $this->get(),
+      'meta' => $this->paginationToArray(),
+    ];
   }
 
   /**

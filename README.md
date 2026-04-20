@@ -15,6 +15,7 @@ composer require timefrontiers/php-multiform
 
 - PHP 8.1+
 - `timefrontiers/php-database-object` ^1.0
+- `timefrontiers/php-pagination` ^1.0
 
 ## When to Use
 
@@ -329,6 +330,125 @@ function updateRecord(string $database, string $table, int $id, array $data):boo
   return $record->fill($data)->save();
 }
 ```
+
+## Pagination
+
+Both `Multiform` and `MultiformQuery` include the `Pagination` trait from `timefrontiers/php-pagination`.
+
+### Via the query builder (recommended)
+
+`MultiformQuery::paginate()` counts matching rows, then fetches the current page in one call. It returns an array with `data` (hydrated `Multiform` instances) and `meta` (pagination metadata).
+
+```php
+// Explicit page / per-page
+$result = Multiform::from('mydb', 'orders')
+  ->query()
+  ->where('status', 'pending')
+  ->orderBy('_created', 'DESC')
+  ->paginate(page: 2, per_page: 25);
+
+foreach ($result['data'] as $order) {
+  echo $order->id;
+}
+
+// $result['meta'] shape:
+// [
+//   'current_page'  => 2,
+//   'per_page'      => 25,
+//   'total'         => 87,
+//   'total_pages'   => 4,
+//   'from'          => 26,
+//   'to'            => 50,
+//   'has_more'      => true,
+//   'is_first_page' => false,
+//   'is_last_page'  => false,
+// ]
+```
+
+#### Auto-read from request
+
+When `$page` / `$per_page` are omitted, values are read from `$_GET` (then `$_POST`) using the supplied key names — same behaviour as `Pagination::fromRequest()`.
+
+```php
+// Reads ?page=3&per_page=10 from the request automatically
+$result = Multiform::from('mydb', 'products')->query()->paginate();
+
+// Custom request keys (?p=3&limit=10)
+$result = Multiform::from('mydb', 'products')
+  ->query()
+  ->paginate(page_key: 'p', per_page_key: 'limit');
+```
+
+#### API response
+
+```php
+$result = Multiform::from('mydb', 'users')
+  ->query()
+  ->where('active', 1)
+  ->paginate();
+
+return json_encode([
+  'data'       => array_map(fn($u) => $u->toArray(), $result['data']),
+  'pagination' => $result['meta'],
+]);
+```
+
+### Via the Multiform instance
+
+Because `Multiform` itself uses the `Pagination` trait you can also manage pagination state on the instance and pass `limitClause()` into a custom SQL query.
+
+```php
+$table = Multiform::from('mydb', 'users');
+
+// Configure from request or explicitly
+$table->fromRequest();
+// or: $table->setPage(2)->setPerPage(25);
+
+// Get total count for the full result set
+$table->setTotalCount($table->countAll());
+
+// Query with LIMIT/OFFSET baked in
+$users = $table->findBySql(
+  "SELECT * FROM :database:.:table:
+   WHERE active = 1
+   ORDER BY name ASC
+   {$table->limitClause()}",
+);
+
+echo "Page {$table->currentPage()} of {$table->totalPages()}";
+echo "Showing {$table->itemStart()}–{$table->itemEnd()} of {$table->totalCount()}";
+
+// Pagination links
+foreach ($table->pageRange(2) as $page) {
+  if ($page === null) {
+    echo '<span>…</span>';
+  } else {
+    $active = $page === $table->currentPage() ? 'active' : '';
+    echo "<a href='{$table->pageUrl($page)}' class='{$active}'>{$page}</a>";
+  }
+}
+```
+
+### Pagination meta helpers
+
+All methods from the `Pagination` trait are available on both the `Multiform` instance and (via the query builder result) indirectly through the `meta` array. Key methods:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `setPage(int)` | `static` | Set current page |
+| `setPerPage(int)` | `static` | Set items per page (1–1000) |
+| `setTotalCount(int)` | `static` | Set total item count |
+| `fromRequest(...)` | `static` | Load page/per_page from `$_GET` |
+| `currentPage()` | `int` | Current page |
+| `totalPages()` | `int` | Total pages |
+| `offset()` | `int` | SQL OFFSET value |
+| `limitClause()` | `string` | `"LIMIT X OFFSET Y"` string |
+| `hasPreviousPage()` | `bool` | Previous page exists |
+| `hasNextPage()` | `bool` | Next page exists |
+| `pageRange(int)` | `array` | Page numbers with `null` for ellipsis |
+| `pageUrl(int, ...)` | `string` | URL for a specific page |
+| `paginationToArray()` | `array` | Full metadata array |
+| `paginationMeta(...)` | `array` | Metadata + prev/next links |
 
 ## Error Handling
 

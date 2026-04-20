@@ -6,6 +6,7 @@ namespace TimeFrontiers\Database;
 
 use TimeFrontiers\Helper\DatabaseObject;
 use TimeFrontiers\Helper\HasErrors;
+use TimeFrontiers\Helper\Pagination;
 use TimeFrontiers\SQLDatabase;
 use TimeFrontiers\Database\Schema\TableSchema;
 
@@ -38,6 +39,7 @@ use TimeFrontiers\Database\Schema\TableSchema;
 class Multiform {
 
   use HasErrors;
+  use Pagination;
 
   // Instance configuration (overrides static)
   protected string $_db_name;
