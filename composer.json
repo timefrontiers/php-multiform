@@ -3,7 +3,6 @@
   "description": "Dynamic table entity class with runtime table resolution",
   "type": "library",
   "license": "MIT",
-  "version": "1.0.0",
   "keywords": ["php", "database", "orm", "dynamic-table", "multi-table"],
   "authors": [
     {
